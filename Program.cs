@@ -107,7 +107,10 @@ namespace LabWork
                 double yRange = yMax - yMin;
 
                 int xTicks = Math.Max(2, (int)Math.Ceiling(xRange));
-                int yTicks = Math.Max(2, 6);
+                int yTicks = Math.Max(2, (int)Math.Ceiling(yRange));
+                // cap ticks to avoid overcrowding
+                yTicks = Math.Min(yTicks, 20);
+                xTicks = Math.Min(xTicks, 20);
 
                 // X ticks
                 for (int i = 0; i <= xTicks; i++)
@@ -147,29 +150,52 @@ namespace LabWork
 
         private PointF ToScreen(PointD pt, Rectangle area, double xMin, double xMax, double yMin, double yMax)
         {
-            float sx = (float)((pt.X - xMin) / (xMax - xMin) * area.Width) + area.Left;
+            double xRange = xMax - xMin;
+            double yRange = yMax - yMin;
+            // Protect against zero ranges
+            float sx = area.Left + (float)((xRange == 0) ? area.Width / 2.0 : (pt.X - xMin) / xRange * area.Width);
             // invert y
-            float sy = (float)(area.Bottom - (pt.Y - yMin) / (yMax - yMin) * area.Height);
+            float sy = (float)(area.Bottom - ((yRange == 0) ? area.Height / 2.0 : (pt.Y - yMin) / yRange * area.Height));
             return new PointF(sx, sy);
         }
 
         private System.Collections.Generic.List<PointD> ComputeFunctionPoints()
         {
             var list = new System.Collections.Generic.List<PointD>();
-            for (double x = xMin; x <= xMax + 1e-9; x += dx)
+            if (dx <= 0) return list; // invalid step
+
+            int n = (int)Math.Round((xMax - xMin) / dx);
+            if (n < 0) return list;
+            for (int i = 0; i <= n; i++)
             {
-                double y;
-                try
-                {
-                    if (2 * x <= 0) continue; // ln domain
-                    y = (1.5 * x - Math.Log(2 * x)) / (3 * x + 1);
-                    if (double.IsNaN(y) || double.IsInfinity(y)) continue;
-                }
-                catch
-                {
-                    continue;
-                }
+                double x = xMin + i * dx;
+                // clamp possible floating rounding overshoot
+                if (x < xMin - 1e-12) x = xMin;
+                if (x > xMax + 1e-12) x = xMax;
+
+                // domain checks
+                if (2 * x <= 0) continue; // ln domain
+                double denom = 3 * x + 1;
+                if (Math.Abs(denom) < 1e-15) continue; // avoid division by zero
+
+                double y = (1.5 * x - Math.Log(2 * x)) / denom;
+                if (double.IsNaN(y) || double.IsInfinity(y)) continue;
                 list.Add(new PointD(x, y));
+            }
+            // Ensure last point at xMax is included (in case rounding skipped it)
+            if (list.Count == 0 || Math.Abs(list[list.Count - 1].X - xMax) > 1e-12)
+            {
+                double x = xMax;
+                if (2 * x > 0)
+                {
+                    double denom = 3 * x + 1;
+                    if (Math.Abs(denom) >= 1e-15)
+                    {
+                        double y = (1.5 * x - Math.Log(2 * x)) / denom;
+                        if (!double.IsNaN(y) && !double.IsInfinity(y))
+                            list.Add(new PointD(x, y));
+                    }
+                }
             }
             return list;
         }
