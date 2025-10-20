@@ -16,10 +16,14 @@ namespace LabWork
 
     public class PlotForm : Form
     {
-        // Function domain and step
-        private readonly double xMin = 2.5;
-        private readonly double xMax = 9.0;
-        private readonly double dx = 0.8;
+        // Function domain and step (private fields with underscore)
+        private readonly double _xMin = 2.5;
+        private readonly double _xMax = 9.0;
+        private readonly double _dx = 0.8;
+
+        // layout constants
+        private const int PaddingInside = 40;
+        private const float PointRadius = 2.5f;
 
         public PlotForm()
         {
@@ -28,16 +32,26 @@ namespace LabWork
             DoubleBuffered = true; // reduce flicker
             BackColor = Color.White;
 
-            // Redraw when resized
+            // Use overrides for paint/resize
+            // Invalidate on resize so OnPaint will be called
             this.Resize += (s, e) => Invalidate();
-            this.Paint += PlotForm_Paint;
         }
 
-    private void PlotForm_Paint(object sender, PaintEventArgs e)
+        protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics;
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            DrawPlot(e.Graphics);
+        }
 
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            Invalidate();
+        }
+
+        private void DrawPlot(Graphics g)
+        {
             var client = this.ClientRectangle;
             if (client.Width <= 0 || client.Height <= 0) return;
 
@@ -51,23 +65,22 @@ namespace LabWork
                 if (pt.Y < yMin) yMin = pt.Y;
                 if (pt.Y > yMax) yMax = pt.Y;
             }
-            if (yMin == yMax)
+            if (yMin == yMax || double.IsInfinity(yMin) || double.IsInfinity(yMax))
             {
                 yMin -= 1; yMax += 1;
             }
 
             // Padding inside client area
-            int pad = 40;
-            Rectangle plotArea = new Rectangle(client.Left + pad, client.Top + pad, Math.Max(10, client.Width - 2 * pad), Math.Max(10, client.Height - 2 * pad));
+            Rectangle plotArea = new Rectangle(client.Left + PaddingInside, client.Top + PaddingInside, Math.Max(10, client.Width - 2 * PaddingInside), Math.Max(10, client.Height - 2 * PaddingInside));
 
             // Draw axes and grid
-            DrawAxes(g, plotArea, xMin, xMax, yMin, yMax);
+            DrawAxes(g, plotArea, _xMin, _xMax, yMin, yMax);
 
             // Transform points to screen
             PointF[] screenPts = new PointF[points.Count];
             for (int i = 0; i < points.Count; i++)
             {
-                screenPts[i] = ToScreen(points[i], plotArea, xMin, xMax, yMin, yMax);
+                screenPts[i] = ToScreen(points[i], plotArea, _xMin, _xMax, yMin, yMax);
             }
 
             using (var pen = new Pen(Color.Blue, 2f))
@@ -78,7 +91,7 @@ namespace LabWork
                 }
                 else if (screenPts.Length == 1)
                 {
-                    g.DrawEllipse(pen, screenPts[0].X - 2, screenPts[0].Y - 2, 4, 4);
+                    g.DrawEllipse(pen, screenPts[0].X - PointRadius, screenPts[0].Y - PointRadius, PointRadius * 2, PointRadius * 2);
                 }
             }
 
@@ -87,7 +100,7 @@ namespace LabWork
             {
                 foreach (var p in screenPts)
                 {
-                    g.FillEllipse(brush, p.X - 2.5f, p.Y - 2.5f, 5f, 5f);
+                    g.FillEllipse(brush, p.X - PointRadius, p.Y - PointRadius, PointRadius * 2, PointRadius * 2);
                 }
             }
         }
@@ -162,16 +175,16 @@ namespace LabWork
         private System.Collections.Generic.List<PointD> ComputeFunctionPoints()
         {
             var list = new System.Collections.Generic.List<PointD>();
-            if (dx <= 0) return list; // invalid step
+            if (_dx <= 0) return list; // invalid step
 
-            int n = (int)Math.Round((xMax - xMin) / dx);
+            int n = (int)Math.Round((_xMax - _xMin) / _dx);
             if (n < 0) return list;
             for (int i = 0; i <= n; i++)
             {
-                double x = xMin + i * dx;
+                double x = _xMin + i * _dx;
                 // clamp possible floating rounding overshoot
-                if (x < xMin - 1e-12) x = xMin;
-                if (x > xMax + 1e-12) x = xMax;
+                if (x < _xMin - 1e-12) x = _xMin;
+                if (x > _xMax + 1e-12) x = _xMax;
 
                 // domain checks
                 if (2 * x <= 0) continue; // ln domain
@@ -183,9 +196,9 @@ namespace LabWork
                 list.Add(new PointD(x, y));
             }
             // Ensure last point at xMax is included (in case rounding skipped it)
-            if (list.Count == 0 || Math.Abs(list[list.Count - 1].X - xMax) > 1e-12)
+            if (list.Count == 0 || Math.Abs(list[list.Count - 1].X - _xMax) > 1e-12)
             {
-                double x = xMax;
+                double x = _xMax;
                 if (2 * x > 0)
                 {
                     double denom = 3 * x + 1;
