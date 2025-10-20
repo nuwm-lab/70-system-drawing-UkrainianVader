@@ -1,18 +1,185 @@
 ﻿using System;
+using System.Drawing;
+using System.Windows.Forms;
 
 namespace LabWork
 {
-    // Даний проект є шаблоном для виконання лабораторних робіт
-    // з курсу "Об'єктно-орієнтоване програмування та патерни проектування"
-    // Необхідно змінювати і дописувати код лише в цьому проекті
-    // Відео-інструкції щодо роботи з github можна переглянути 
-    // за посиланням https://www.youtube.com/@ViktorZhukovskyy/videos 
-    class Program
+    static class Program
     {
-        static void Main(string[] args)
+        [STAThread]
+        static void Main()
         {
-            
-            Console.WriteLine("Hello World!");
+            ApplicationConfiguration.Initialize();
+            Application.Run(new PlotForm());
         }
+    }
+
+    public class PlotForm : Form
+    {
+        // Function domain and step
+        private readonly double xMin = 2.5;
+        private readonly double xMax = 9.0;
+        private readonly double dx = 0.8;
+
+        public PlotForm()
+        {
+            Text = "Plot: y = (1.5x - ln(2x)) / (3x + 1)";
+            MinimumSize = new Size(400, 300);
+            DoubleBuffered = true; // reduce flicker
+            BackColor = Color.White;
+
+            // Redraw when resized
+            this.Resize += (s, e) => Invalidate();
+            this.Paint += PlotForm_Paint;
+        }
+
+    private void PlotForm_Paint(object sender, PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            var client = this.ClientRectangle;
+            if (client.Width <= 0 || client.Height <= 0) return;
+
+            // Compute points
+            var points = ComputeFunctionPoints();
+
+            // Find y range
+            double yMin = double.PositiveInfinity, yMax = double.NegativeInfinity;
+            foreach (var pt in points)
+            {
+                if (pt.Y < yMin) yMin = pt.Y;
+                if (pt.Y > yMax) yMax = pt.Y;
+            }
+            if (yMin == yMax)
+            {
+                yMin -= 1; yMax += 1;
+            }
+
+            // Padding inside client area
+            int pad = 40;
+            Rectangle plotArea = new Rectangle(client.Left + pad, client.Top + pad, Math.Max(10, client.Width - 2 * pad), Math.Max(10, client.Height - 2 * pad));
+
+            // Draw axes and grid
+            DrawAxes(g, plotArea, xMin, xMax, yMin, yMax);
+
+            // Transform points to screen
+            PointF[] screenPts = new PointF[points.Count];
+            for (int i = 0; i < points.Count; i++)
+            {
+                screenPts[i] = ToScreen(points[i], plotArea, xMin, xMax, yMin, yMax);
+            }
+
+            using (var pen = new Pen(Color.Blue, 2f))
+            {
+                if (screenPts.Length >= 2)
+                {
+                    g.DrawLines(pen, screenPts);
+                }
+                else if (screenPts.Length == 1)
+                {
+                    g.DrawEllipse(pen, screenPts[0].X - 2, screenPts[0].Y - 2, 4, 4);
+                }
+            }
+
+            // Draw points
+            using (var brush = new SolidBrush(Color.Red))
+            {
+                foreach (var p in screenPts)
+                {
+                    g.FillEllipse(brush, p.X - 2.5f, p.Y - 2.5f, 5f, 5f);
+                }
+            }
+        }
+
+        private void DrawAxes(Graphics g, Rectangle area, double xMin, double xMax, double yMin, double yMax)
+        {
+            using (var thinPen = new Pen(Color.Gray, 1f))
+            using (var axisPen = new Pen(Color.Black, 1.5f))
+            using (var font = new Font("Segoe UI", 9))
+            using (var brush = new SolidBrush(Color.Black))
+            {
+                // Draw border
+                g.DrawRectangle(thinPen, area);
+
+                // Choose ticks for x and y
+                double xRange = xMax - xMin;
+                double yRange = yMax - yMin;
+
+                int xTicks = Math.Max(2, (int)Math.Ceiling(xRange));
+                int yTicks = Math.Max(2, 6);
+
+                // X ticks
+                for (int i = 0; i <= xTicks; i++)
+                {
+                    double xv = xMin + i * xRange / xTicks;
+                    var p = ToScreen(new PointD(xv, 0), area, xMin, xMax, yMin, yMax);
+                    g.DrawLine(thinPen, p.X, area.Top, p.X, area.Bottom);
+                    string label = xv.ToString("0.##");
+                    var sz = g.MeasureString(label, font);
+                    g.DrawString(label, font, brush, p.X - sz.Width / 2, area.Bottom + 2);
+                }
+
+                // Y ticks
+                for (int i = 0; i <= yTicks; i++)
+                {
+                    double yv = yMin + i * yRange / yTicks;
+                    var p = ToScreen(new PointD(0, yv), area, xMin, xMax, yMin, yMax);
+                    g.DrawLine(thinPen, area.Left, p.Y, area.Right, p.Y);
+                    string label = yv.ToString("0.##");
+                    var sz = g.MeasureString(label, font);
+                    g.DrawString(label, font, brush, area.Left - sz.Width - 4, p.Y - sz.Height / 2);
+                }
+
+                // Draw X and Y axis lines at 0 if visible
+                if (yMin <= 0 && yMax >= 0)
+                {
+                    var p0 = ToScreen(new PointD(0, 0), area, xMin, xMax, yMin, yMax);
+                    g.DrawLine(axisPen, area.Left, p0.Y, area.Right, p0.Y);
+                }
+                if (xMin <= 0 && xMax >= 0)
+                {
+                    var p0 = ToScreen(new PointD(0, 0), area, xMin, xMax, yMin, yMax);
+                    g.DrawLine(axisPen, p0.X, area.Top, p0.X, area.Bottom);
+                }
+            }
+        }
+
+        private PointF ToScreen(PointD pt, Rectangle area, double xMin, double xMax, double yMin, double yMax)
+        {
+            float sx = (float)((pt.X - xMin) / (xMax - xMin) * area.Width) + area.Left;
+            // invert y
+            float sy = (float)(area.Bottom - (pt.Y - yMin) / (yMax - yMin) * area.Height);
+            return new PointF(sx, sy);
+        }
+
+        private System.Collections.Generic.List<PointD> ComputeFunctionPoints()
+        {
+            var list = new System.Collections.Generic.List<PointD>();
+            for (double x = xMin; x <= xMax + 1e-9; x += dx)
+            {
+                double y;
+                try
+                {
+                    if (2 * x <= 0) continue; // ln domain
+                    y = (1.5 * x - Math.Log(2 * x)) / (3 * x + 1);
+                    if (double.IsNaN(y) || double.IsInfinity(y)) continue;
+                }
+                catch
+                {
+                    continue;
+                }
+                list.Add(new PointD(x, y));
+            }
+            return list;
+        }
+    }
+
+    // Small helper struct used to keep double precision points
+    public struct PointD
+    {
+        public double X;
+        public double Y;
+        public PointD(double x, double y) { X = x; Y = y; }
     }
 }
