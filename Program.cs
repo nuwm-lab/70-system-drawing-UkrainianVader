@@ -21,9 +21,13 @@ namespace LabWork
         private readonly double _xMax = 9.0;
         private readonly double _dx = 0.8;
 
-        // layout constants
-        private const int PaddingInside = 40;
-        private const float PointRadius = 2.5f;
+    // layout constants
+    private const int PaddingInside = 40;
+    private const float PointRadius = 2.5f;
+    private const double Eps = 1e-12;
+
+    // cached resources
+    private readonly Font _labelFont = new Font("Segoe UI", 9);
 
         public PlotForm()
         {
@@ -58,6 +62,15 @@ namespace LabWork
             // Compute points
             var points = ComputeFunctionPoints();
 
+            // If no points, set sensible default and don't attempt to plot lines
+            if (points.Count == 0)
+            {
+                double defaultMin = -1.0, defaultMax = 1.0;
+                Rectangle plotAreaEmpty = new Rectangle(client.Left + PaddingInside, client.Top + PaddingInside, Math.Max(10, client.Width - 2 * PaddingInside), Math.Max(10, client.Height - 2 * PaddingInside));
+                DrawAxes(g, plotAreaEmpty, _xMin, _xMax, defaultMin, defaultMax);
+                return;
+            }
+
             // Find y range
             double yMin = double.PositiveInfinity, yMax = double.NegativeInfinity;
             foreach (var pt in points)
@@ -65,9 +78,15 @@ namespace LabWork
                 if (pt.Y < yMin) yMin = pt.Y;
                 if (pt.Y > yMax) yMax = pt.Y;
             }
-            if (yMin == yMax || double.IsInfinity(yMin) || double.IsInfinity(yMax))
+            if (!(double.IsFinite(yMin) && double.IsFinite(yMax)) || Math.Abs(yMax - yMin) < Eps)
             {
-                yMin -= 1; yMax += 1;
+                // sensible default if degenerate
+                yMin = yMin - 1.0;
+                yMax = yMax + 1.0;
+                if (!double.IsFinite(yMin) || !double.IsFinite(yMax))
+                {
+                    yMin = -1.0; yMax = 1.0;
+                }
             }
 
             // Padding inside client area
@@ -107,9 +126,8 @@ namespace LabWork
 
         private void DrawAxes(Graphics g, Rectangle area, double xMin, double xMax, double yMin, double yMax)
         {
-            using (var thinPen = new Pen(Color.Gray, 1f))
+                using (var thinPen = new Pen(Color.Gray, 1f))
             using (var axisPen = new Pen(Color.Black, 1.5f))
-            using (var font = new Font("Segoe UI", 9))
             using (var brush = new SolidBrush(Color.Black))
             {
                 // Draw border
@@ -132,8 +150,8 @@ namespace LabWork
                     var p = ToScreen(new PointD(xv, 0), area, xMin, xMax, yMin, yMax);
                     g.DrawLine(thinPen, p.X, area.Top, p.X, area.Bottom);
                     string label = xv.ToString("0.##");
-                    var sz = g.MeasureString(label, font);
-                    g.DrawString(label, font, brush, p.X - sz.Width / 2, area.Bottom + 2);
+                    var sz = g.MeasureString(label, _labelFont);
+                    g.DrawString(label, _labelFont, brush, p.X - sz.Width / 2, area.Bottom + 2);
                 }
 
                 // Y ticks
@@ -143,8 +161,8 @@ namespace LabWork
                     var p = ToScreen(new PointD(0, yv), area, xMin, xMax, yMin, yMax);
                     g.DrawLine(thinPen, area.Left, p.Y, area.Right, p.Y);
                     string label = yv.ToString("0.##");
-                    var sz = g.MeasureString(label, font);
-                    g.DrawString(label, font, brush, area.Left - sz.Width - 4, p.Y - sz.Height / 2);
+                    var sz = g.MeasureString(label, _labelFont);
+                    g.DrawString(label, _labelFont, brush, area.Left - sz.Width - 4, p.Y - sz.Height / 2);
                 }
 
                 // Draw X and Y axis lines at 0 if visible
@@ -158,7 +176,52 @@ namespace LabWork
                     var p0 = ToScreen(new PointD(0, 0), area, xMin, xMax, yMin, yMax);
                     g.DrawLine(axisPen, p0.X, area.Top, p0.X, area.Bottom);
                 }
+
+                // Axis labels: place 'x' near right end of x-axis (or bottom-right) and 'y' near top of y-axis (or top-left)
+                string xLabel = "x";
+                string yLabel = "y";
+                SizeF xLabelSize = g.MeasureString(xLabel, _labelFont);
+                SizeF yLabelSize = g.MeasureString(yLabel, _labelFont);
+
+                // X label position
+                PointF xLabelPos;
+                if (yMin <= 0 && yMax >= 0)
+                {
+                    var p0 = ToScreen(new PointD(xMax, 0), area, xMin, xMax, yMin, yMax);
+                    xLabelPos = new PointF(Math.Min(area.Right - xLabelSize.Width, p0.X - xLabelSize.Width / 2), Math.Min(area.Bottom + 4, area.Bottom + 4));
+                }
+                else
+                {
+                    xLabelPos = new PointF(area.Right - xLabelSize.Width - 4, area.Bottom + 4);
+                }
+
+                // Y label position
+                PointF yLabelPos;
+                if (xMin <= 0 && xMax >= 0)
+                {
+                    var p0 = ToScreen(new PointD(0, yMax), area, xMin, xMax, yMin, yMax);
+                    yLabelPos = new PointF(Math.Max(area.Left + 4, area.Left + 4), Math.Max(area.Top + 2, p0.Y - yLabelSize.Height / 2));
+                }
+                else
+                {
+                    yLabelPos = new PointF(area.Left + 4, area.Top + 2);
+                }
+
+                using (var labelBrush = new SolidBrush(Color.Black))
+                {
+                    g.DrawString(xLabel, _labelFont, labelBrush, xLabelPos);
+                    g.DrawString(yLabel, _labelFont, labelBrush, yLabelPos);
+                }
             }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _labelFont?.Dispose();
+            }
+            base.Dispose(disposing);
         }
 
         private PointF ToScreen(PointD pt, Rectangle area, double xMin, double xMax, double yMin, double yMax)
@@ -177,32 +240,33 @@ namespace LabWork
             var list = new System.Collections.Generic.List<PointD>();
             if (_dx <= 0) return list; // invalid step
 
-            int n = (int)Math.Round((_xMax - _xMin) / _dx);
+            // compute number of steps robustly using floor with eps to avoid overshoot
+            int n = (int)Math.Floor(((_xMax - _xMin) / _dx) + Eps);
             if (n < 0) return list;
             for (int i = 0; i <= n; i++)
             {
                 double x = _xMin + i * _dx;
                 // clamp possible floating rounding overshoot
-                if (x < _xMin - 1e-12) x = _xMin;
-                if (x > _xMax + 1e-12) x = _xMax;
+                if (x < _xMin - Eps) x = _xMin;
+                if (x > _xMax + Eps) x = _xMax;
 
                 // domain checks
                 if (2 * x <= 0) continue; // ln domain
                 double denom = 3 * x + 1;
-                if (Math.Abs(denom) < 1e-15) continue; // avoid division by zero
+                if (Math.Abs(denom) < 1e-12) continue; // avoid division by zero (use slightly looser eps)
 
                 double y = (1.5 * x - Math.Log(2 * x)) / denom;
                 if (double.IsNaN(y) || double.IsInfinity(y)) continue;
                 list.Add(new PointD(x, y));
             }
             // Ensure last point at xMax is included (in case rounding skipped it)
-            if (list.Count == 0 || Math.Abs(list[list.Count - 1].X - _xMax) > 1e-12)
+            if (list.Count == 0 || Math.Abs(list[list.Count - 1].X - _xMax) > Eps)
             {
                 double x = _xMax;
                 if (2 * x > 0)
                 {
                     double denom = 3 * x + 1;
-                    if (Math.Abs(denom) >= 1e-15)
+                    if (Math.Abs(denom) >= 1e-12)
                     {
                         double y = (1.5 * x - Math.Log(2 * x)) / denom;
                         if (!double.IsNaN(y) && !double.IsInfinity(y))
@@ -215,10 +279,10 @@ namespace LabWork
     }
 
     // Small helper struct used to keep double precision points
-    public struct PointD
+    public readonly struct PointD
     {
-        public double X;
-        public double Y;
+        public double X { get; }
+        public double Y { get; }
         public PointD(double x, double y) { X = x; Y = y; }
     }
 }
