@@ -29,6 +29,10 @@ namespace LabWork
     // cached resources
     private readonly Font _labelFont = new Font("Segoe UI", 9);
 
+        // UI: ComboBox for line style
+        private readonly ComboBox _lineStyleCombo;
+        private System.Drawing.Drawing2D.DashStyle _currentDashStyle = System.Drawing.Drawing2D.DashStyle.Solid;
+
         public PlotForm()
         {
             Text = "Plot: y = (1.5x - ln(2x)) / (3x + 1)";
@@ -36,7 +40,39 @@ namespace LabWork
             DoubleBuffered = true; // reduce flicker
             BackColor = Color.White;
 
-            // Use overrides for paint/resize
+            // ComboBox for line style
+            _lineStyleCombo = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Left = 10,
+                Top = 10,
+                Width = 160,
+                Font = _labelFont,
+            };
+            _lineStyleCombo.Items.AddRange(new object[]
+            {
+                "Суцільна",
+                "Штрихова",
+                "Пунктирна",
+                "Штрих-пунктир",
+                "Штрих-пунктир-пунктир"
+            });
+            _lineStyleCombo.SelectedIndex = 0;
+            _lineStyleCombo.SelectedIndexChanged += (s, e) =>
+            {
+                switch (_lineStyleCombo.SelectedIndex)
+                {
+                    case 0: _currentDashStyle = System.Drawing.Drawing2D.DashStyle.Solid; break;
+                    case 1: _currentDashStyle = System.Drawing.Drawing2D.DashStyle.Dash; break;
+                    case 2: _currentDashStyle = System.Drawing.Drawing2D.DashStyle.Dot; break;
+                    case 3: _currentDashStyle = System.Drawing.Drawing2D.DashStyle.DashDot; break;
+                    case 4: _currentDashStyle = System.Drawing.Drawing2D.DashStyle.DashDotDot; break;
+                    default: _currentDashStyle = System.Drawing.Drawing2D.DashStyle.Solid; break;
+                }
+                Invalidate();
+            };
+            Controls.Add(_lineStyleCombo);
+
             // Invalidate on resize so OnPaint will be called
             this.Resize += (s, e) => Invalidate();
         }
@@ -58,6 +94,13 @@ namespace LabWork
         {
             var client = this.ClientRectangle;
             if (client.Width <= 0 || client.Height <= 0) return;
+
+            // Adjust plot area to leave space for ComboBox
+            int topPad = PaddingInside;
+            if (_lineStyleCombo.Visible)
+            {
+                topPad = Math.Max(PaddingInside, _lineStyleCombo.Bottom + 10);
+            }
 
             // Compute points
             var points = ComputeFunctionPoints();
@@ -90,7 +133,7 @@ namespace LabWork
             }
 
             // Padding inside client area
-            Rectangle plotArea = new Rectangle(client.Left + PaddingInside, client.Top + PaddingInside, Math.Max(10, client.Width - 2 * PaddingInside), Math.Max(10, client.Height - 2 * PaddingInside));
+            Rectangle plotArea = new Rectangle(client.Left + PaddingInside, client.Top + topPad, Math.Max(10, client.Width - 2 * PaddingInside), Math.Max(10, client.Height - topPad - PaddingInside));
 
             // Draw axes and grid
             DrawAxes(g, plotArea, _xMin, _xMax, yMin, yMax);
@@ -104,6 +147,7 @@ namespace LabWork
 
             using (var pen = new Pen(Color.Blue, 2f))
             {
+                pen.DashStyle = _currentDashStyle;
                 if (screenPts.Length >= 2)
                 {
                     g.DrawLines(pen, screenPts);
